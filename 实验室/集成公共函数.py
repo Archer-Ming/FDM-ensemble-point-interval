@@ -13,19 +13,17 @@ from sklearn.model_selection import (GroupKFold, KFold, cross_val_predict,
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures, FunctionTransformer
 from sklearn.pipeline import make_pipeline
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.linear_model import (Ridge, ElasticNet, Lasso, BayesianRidge,
-                                  HuberRegressor, LinearRegression)
+from sklearn.linear_model import (Ridge,Lasso)
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.kernel_ridge import KernelRidge
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, ConstantKernel as C, WhiteKernel
 from sklearn.ensemble import (RandomForestRegressor, ExtraTreesRegressor,
                               GradientBoostingRegressor, AdaBoostRegressor)
-from sklearn.cross_decomposition import PLSRegression
 from sklearn.metrics import r2_score, mean_squared_error
 from scipy.optimize import nnls
 from scipy import stats
+
 
 
 GROUP_MODE   = 'combo'  #按唯一特征组合分组                      
@@ -678,13 +676,13 @@ def evaluate_oof(tag, oof, y, cond):
     return out
 
 
-#区间预测里面 第二部分的实验噪声方差计算
+#区间预测里面 第二部分的实验噪声 SS 方差计算
 def repeatability(tag):
     """
     返回 dict:
         sd_within     : 工况内试样间 pooled SD
         sd_run        : 同一因子组合不同"次运行"的工况均值 pooled SD
-                        （由中心点重复运行估计：含批间/打印间 + 试样抽样）
+    
         sd_pure_run   : 扣除试样抽样后的纯批间 SD
         var_sampling  : sd_within^2 / N_REPL_PER_COND
         n_rep_combos / df_run : 重复组合数与自由度
@@ -699,7 +697,9 @@ def repeatability(tag):
     cm['key'] = [tuple(np.round(r, 6)) for r in cm[FEATS].values]
     vc = cm['key'].value_counts()
     rep_keys = list(vc[vc > 1].index)
+
     ss, df = 0.0, 0
+
     for k in rep_keys:
         v = cm.loc[cm['key'] == k, 'y'].values.astype(float)
         ss += float(((v - v.mean()) ** 2).sum())
