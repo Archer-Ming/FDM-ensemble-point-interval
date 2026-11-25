@@ -8,8 +8,7 @@ import pandas as pd
 warnings.filterwarnings('ignore')
 
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.model_selection import (GroupKFold, KFold, cross_val_predict,
-                                     GridSearchCV)
+from sklearn.model_selection import (GroupKFold, KFold, cross_val_predict,GridSearchCV)
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures, FunctionTransformer
 from sklearn.pipeline import make_pipeline
 from sklearn.tree import DecisionTreeRegressor
@@ -18,15 +17,14 @@ from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, ConstantKernel as C, WhiteKernel
-from sklearn.ensemble import (RandomForestRegressor, ExtraTreesRegressor,
-                              GradientBoostingRegressor, AdaBoostRegressor)
+from sklearn.ensemble import (RandomForestRegressor, ExtraTreesRegressor,GradientBoostingRegressor, AdaBoostRegressor)
 from sklearn.metrics import r2_score, mean_squared_error
 from scipy.optimize import nnls
-from scipy import stats
 
 
 
-GROUP_MODE   = 'combo'  #按唯一特征组合分组                      
+
+GROUP_MODE   = 'combo'  #按特征组合分组                      
 
 N_TUNE_FOLDS = 5         # 网格调优所用的 GroupKFold 折数
 N_OUTER      = 8         # 嵌套评估外层折数
@@ -35,45 +33,26 @@ NESTED_TUNE  = True      # 外层评估的每一折内部重新调参
 
 ALPHA        = 0.10      # 90%预测区间
 
-
 N_JOBS       = int(os.environ.get('CFPA_N_JOBS', min(4, os.cpu_count() or 1)))
-N_JOBS_INNER = 1         # 树模型内部并行度置 1
+N_JOBS_INNER = 1         #树模型并行度置 1
 
 
-#数据存放在Data
-_HERE = os.path.dirname(os.path.abspath(__file__))  #dirname取父目录
+
+_HERE = os.path.dirname(os.path.abspath(__file__))  
 
 def _resolve_data_dir():
     """定位Data目录"""
     cands = [os.path.join(_HERE, '..', 'Data'),
-             os.path.join(_HERE, 'Data'),
-             os.path.join(os.getcwd(), 'Data')]
+             os.path.join(_HERE, 'Data')]
     try:
         for c in cands:
             p = os.path.abspath(c)
             if os.path.isdir(p):
                 return p
     except Exception:
-        raise RuntimeError('定位不到Data目录')
-    # return os.path.abspath(os.path.join(_HERE, '..', 'Data'))
+        raise RuntimeError('找不到Data目录')
 
 DATA_DIR = _resolve_data_dir()
-
-
-MODEL_DIR  = os.path.join(DATA_DIR, '集成建模')                      #集成模型与训练结果
-EXT_DIR    = os.path.join(DATA_DIR, '外部验证')                      #外部验证结果
-SHAP_DIR   = os.path.join(DATA_DIR, 'Shap解释图')                    #SHAP 图
-PI_OOF_DIR = os.path.join(DATA_DIR, 'OOF残差预测区间方法')            #共形
-PI_MEM_DIR = os.path.join(DATA_DIR, '基学习器差异预测区间方法')        #成员分歧
-PI_VQ_DIR  = os.path.join(DATA_DIR, '基学习器_OOF残差复合预测区间')    #方差合成
-PLOT_DIR   = os.path.join(DATA_DIR, '数据分析')                      #数据特征类绘图
-RING_DIR   = os.path.join(DATA_DIR, '环形热图')                      #环形热图类绘图
-
-
-# 注: PI_OOF_DIR / PI_MEM_DIR 仅在运行对应旧版区间 notebook 时才按需创建，
-#     这里不再预建，避免生成空目录。
-for _d in (MODEL_DIR, EXT_DIR, SHAP_DIR, PI_VQ_DIR, PLOT_DIR, RING_DIR):
-    os.makedirs(_d, exist_ok=True)
 
 def _resolve_input(name):
     """输入数据路径的查找"""
@@ -88,6 +67,18 @@ def _resolve_input(name):
     return os.path.abspath(os.path.join(DATA_DIR, name))
 
 
+
+#数据存放在Data
+MODEL_DIR  = os.path.join(DATA_DIR, '集成建模')                      #集成模型与训练结果
+EXT_DIR    = os.path.join(DATA_DIR, '外部验证')                      #外部验证结果
+SHAP_DIR   = os.path.join(DATA_DIR, 'Shap解释图')                    #SHAP图
+PI_VQ_DIR  = os.path.join(DATA_DIR, '基学习器_OOF残差复合预测区间')    #复合区间
+PLOT_DIR   = os.path.join(DATA_DIR, '数据分析')                      #数据特征类绘图
+RING_DIR   = os.path.join(DATA_DIR, '环形热图')                      #环形热图类绘图
+
+for _d in (MODEL_DIR, EXT_DIR, SHAP_DIR, PI_VQ_DIR, PLOT_DIR, RING_DIR):
+    os.makedirs(_d, exist_ok=True)
+
 #数据文件
 DATA          = _resolve_input('尼龙碳纤_力学测试数据汇总.xlsx')
 EXT_DATA      = _resolve_input('8组外部验证数据集.xlsx')
@@ -96,6 +87,7 @@ SUMMARY_SHEET = '汇总-均值'
 SHEETS    = {'拉伸强度': 'TS', '弹性模量': 'TM', '弯曲强度': 'FS', '弯曲模量': 'FM', '冲击强度': 'IS'}
 TAG2SHEET = {v: k for k, v in SHEETS.items()}
 TAG_CN    = {v: k for k, v in SHEETS.items()}
+
 TAG_EN    = {'TS': 'Tensile strength', 'TM': 'Tensile modulus',
              'FS': 'Flexural strength', 'FM': 'Flexural modulus', 'IS': 'Impact strength'}
 FEATS     = ['T_noz', 'T_bed', 'speed', 'layer', 'direction']
@@ -103,31 +95,38 @@ FEATS     = ['T_noz', 'T_bed', 'speed', 'layer', 'direction']
 
 #结果文件路径
 EXT_PRED_CMP_XLSX    = '外部验证预测结果.xlsx'
-COMP_XLSX            = EXT_PRED_CMP_XLSX     
+COMP_XLSX            = EXT_PRED_CMP_XLSX   
+
 TRAIN_RESULT_XLSX    = '集成模型训练结果.xlsx'
 INTERVAL_RESULT_XLSX = '区间预测评估结果_复合.xlsx'
 
 ARTIFACT_FILE    = '集成模型存档.joblib'
 ARTIFACT_PATH    = os.path.join(MODEL_DIR, ARTIFACT_FILE) 
-ARTIFACT_VERSION = 3       
+ARTIFACT_VERSION = 3                                        #模型存档版本 
+
 
 EXT_PRED_CMP_PATH    = os.path.join(EXT_DIR, EXT_PRED_CMP_XLSX)
-TRAIN_RESULT_PATH    = os.path.join(MODEL_DIR, TRAIN_RESULT_XLSX)
-INTERVAL_RESULT_PATH = os.path.join(PI_VQ_DIR, INTERVAL_RESULT_XLSX)
+# TRAIN_RESULT_PATH    = os.path.join(MODEL_DIR, TRAIN_RESULT_XLSX)
+# INTERVAL_RESULT_PATH = os.path.join(PI_VQ_DIR, INTERVAL_RESULT_XLSX)
 
-# 每个工况的平行试样数
+
+#每个工况的平行试样数
 N_REPL_PER_COND = 3
 
 
-#原始数据表预处理和自检 拆分三个平行样本为独立同工况的三行样本
+#数据预处理 拆分三个平行样本为独立同工况的三行样本
 def load_long(sheet, validate=False):      
-    """读取单个分表, 而不是总表 validate=True 时进行结构自检
     """
+    读取只能适配单个分表,总表(汇总-均值)不能  
+    validate=True时进行结构自检
+    """
+
     raw = pd.read_excel(DATA, sheet_name=sheet, header=None, skiprows=2)
     if raw.shape[1] < 9:
-        raise ValueError(f'[{sheet}] 列数不足 9 实际 {raw.shape[1]}），分表布局已变动')
+        raise ValueError(f'[{sheet}]列数不足9   实际{raw.shape[1]}')
+    
     raw = raw.iloc[:, :10]
-    raw = raw.dropna(subset=[0])
+    raw = raw.dropna(subset=[0])                     #删除第0列
     raw.columns = ['id', 'T_noz', 'T_bed', 'speed', 'layer', 'direction',
                    's1', 's2', 's3', 'mean']
     recs = []
@@ -135,54 +134,58 @@ def load_long(sheet, validate=False):
         for s in ['s1', 's2', 's3']:  #拆分三个平行样本为独立同工况的三行样本 
             recs.append(dict(cond=int(r['id']), T_noz=r['T_noz'], T_bed=r['T_bed'],
                              speed=r['speed'], layer=r['layer'],
-                             direction=r['direction'], y=r[s]))  #id就是cond就是序号
+                             direction=r['direction'], y=r[s])) 
     d = pd.DataFrame(recs)
-    if validate:
-        _validate_long(d, sheet)
+
+
+    # if validate:
+    #     _validate_long(d, sheet)
     return d
 
-def _validate_long(d, sheet):
-    """长表结构自检"""
-    if d['y'].isna().any():
-        bad = d.loc[d['y'].isna(), 'cond'].unique().tolist()
-        raise ValueError(f'[{sheet}] 存在缺失响应值的工况: {bad[:10]}')
-    if d[FEATS].isna().any().any():
-        raise ValueError(f'[{sheet}] 存在缺失的工艺因子')
+# def _validate_long(d, sheet):
+#     """长表结构自检"""
+#     if d['y'].isna().any():
+#         bad = d.loc[d['y'].isna(), 'cond'].unique().tolist()
+#         raise ValueError(f'[{sheet}] 存在缺失响应值的工况: {bad[:10]}')
+#     if d[FEATS].isna().any().any():
+#         raise ValueError(f'[{sheet}] 存在缺失的工艺因子')
     
-    n_per = d.groupby('cond').size()  #检查所有工况组合的样本个数是不是都是3个 如果是则nunique()为1
-    if n_per.nunique() != 1:
-        bad = n_per[n_per != n_per.iloc[0]]
-        raise ValueError(f'[{sheet}] 各工况平行试样数不相等: {bad.to_dict()}')
+#     n_per = d.groupby('cond').size()  #检查所有工况组合的样本个数是不是都是3个 如果是则nunique()为1
+#     if n_per.nunique() != 1:
+#         bad = n_per[n_per != n_per.iloc[0]]
+#         raise ValueError(f'[{sheet}] 各工况平行试样数不相等: {bad.to_dict()}')
     
-    if int(n_per.iloc[0]) != N_REPL_PER_COND:
-        raise ValueError(f'[{sheet}] 每工况平行试样数 {int(n_per.iloc[0])} '
-                         f'!= 代码假定的 {N_REPL_PER_COND}')
-    rng = dict(T_noz=(200, 400), T_bed=(0, 150), speed=(1, 300),
-               layer=(0.01, 1.0), direction=(1, 3))
-    for f, (lo, hi) in rng.items():
-        v = d[f].astype(float)
-        if v.min() < lo or v.max() > hi:
-            raise ValueError(f'[{sheet}] 因子 {f} 取值越界: [{v.min()}, {v.max()}]')
+#     if int(n_per.iloc[0]) != N_REPL_PER_COND:
+#         raise ValueError(f'[{sheet}] 每工况平行试样数 {int(n_per.iloc[0])} ')
+#     rng = dict(T_noz=(200, 400), T_bed=(0, 150), speed=(1, 300),
+#                layer=(0.01, 1.0), direction=(1, 3))
+#     for f, (lo, hi) in rng.items():
+#         v = d[f].astype(float)
+#         if v.min() < lo or v.max() > hi:
+#             raise ValueError(f'[{sheet}] 因子 {f} 取值越界: [{v.min()}, {v.max()}]')
+
+
 
 def load_condition_means(tag):
-    """原始数据表的工况均值口径数据自动计算
+    """
+    原始数据表的工况-均值数据自动计算
     返回 DataFrame: cond, y(工况均值), T_noz, T_bed, speed, layer, direction
     """
     d = load_long(TAG2SHEET[tag])
     agg = {'y': ('y', 'mean')}
-    agg.update({f: (f, 'first') for f in FEATS})   #自定义聚合方式 y取均值，其他因子取第一个
-    return d.groupby('cond').agg(**agg).reset_index()
+    agg.update({f: (f, 'first') for f in FEATS})   #聚合方式： y取均值，其他取第一个值
+    return d.groupby('cond').agg(**agg).reset_index() #按cond分组
 
-
-#=====补丁======
-# 对原始数据表的子表进行数据对比检查
+#对原始数据表的子表和均值表进行数据对比检查
 def check_data_integrity(rel_tol=1e-4, abs_tol=1e-3, verbose=True):
-    """比对 汇总-均值 工作表 与 试样级分表推导的工况均值。
-    容差用"相对 + 绝对"双判据
     """
+    比对 汇总-均值 工作表 与分表推导的工况均值
+    """
+
     sm = pd.read_excel(DATA, sheet_name=SUMMARY_SHEET)
     sm.columns = [str(c).strip() for c in sm.columns]
     id_col = sm.columns[0]
+
     rows = []
     for tag, cname in [('TS', '拉伸强度/MPa'), ('TM', '弹性模量/MPa'),
                        ('FS', '弯曲强度/MPa'), ('FM', '弯曲模量/MPa'),
@@ -202,21 +205,22 @@ def check_data_integrity(rel_tol=1e-4, abs_tol=1e-3, verbose=True):
                                  试样均值=round(float(der[c]), 4), 差值=round(diff, 4),
                                  相对差pct=round(100 * diff / float(ref[c]), 3)))
     df = pd.DataFrame(rows)
+
     if verbose:
         if df.empty:
-            print(f'[数据自检] 汇总-均值 与 试样级分表一致 rel_tol={rel_tol:g}, abs_tol={abs_tol:g}')
+            print(f'[数据自检] 汇总-均值 与 分表一致 rel_tol={rel_tol:g}, abs_tol={abs_tol:g}')
         else:
-            print(f'[数据自检] 发现 {len(df)} 处超出容差的不一致:')
+            print(f'[数据自检] 发现 {len(df)} 处的不一致:')
             print(df.to_string(index=False))
     return df
 
 # 外部数据表的加载和自检
 def load_external():
     """
-    解析 8组外部验证数据集.xlsx 的 Sheet1
+    8组外部验证数据集.xlsx 
     返回 dict: {tag: DataFrame(含 cond, T_noz, T_bed, speed, layer, direction, y_mean, y1,y2,y3)}
-    说明：本文件按行列位置解析，任何行/列增删都会整体错位，故加结构自检。
     """
+
     raw = pd.read_excel(EXT_DATA, sheet_name='Sheet1', header=None)
 
     df_b = raw.iloc[2:10, 0:14].copy()
@@ -253,9 +257,10 @@ def load_external():
     return ext
 
 def _validate_external(df, name):
-    """外部验证集结构自检（行/列错位时会立刻报错，而不是静默给错结果）"""
+    """外部验证集结构自检"""
+
     if df.isna().any().any():
-        raise ValueError(f'[外部验证·{name}] 解析出缺失值，Sheet1 的行/列布局可能已变动')
+        raise ValueError(f'[外部验证·{name}] 解析出缺失值')
     if len(df) != 8:
         raise ValueError(f'[外部验证·{name}] 工况数 {len(df)} != 8')
     if sorted(df['cond'].astype(int).tolist()) != list(range(1, 9)):
@@ -264,18 +269,21 @@ def _validate_external(df, name):
         raise ValueError(f'[外部验证·{name}] direction 取值异常')
 
 
+
+
+
 #工况/特征组合 分组
-#这个函数用于确定GroupKold用的分组标签
+#用于确定GroupKold用的分组标签
 def group_labels(d, mode=None):
-    """返回用于 GroupKFold 的分组标签。
+    """
+    返回用于 GroupKFold 的分组标签
     """
     mode = GROUP_MODE if mode is None else mode
-    if mode == 'cond':
-        return np.asarray(d['cond'].values)
-    if mode != 'combo':
-        raise ValueError("mode 只能是 'combo' 或 'cond'")
 
-    # 按唯一因子组合分组 combo 给相同工况组合的多样本设为同个id号 确保在GroupKFold中确保在训练集或者测试集
+    if mode != 'combo':
+        raise ValueError("mode错误")
+
+    #给相同工况组合的多样本设为同个id号 确保在GroupKFold中确保在训练集或者测试集
     key = np.round(d[FEATS].values.astype(float), 6)
     _, inv = np.unique(key, axis=0, return_inverse=True)
     return np.asarray(inv).ravel()
@@ -287,26 +295,27 @@ def describe_groups(d, mode=None):
     return dict(mode=mode, n_cond=int(d['cond'].nunique()),
                 n_groups=int(len(np.unique(g))), n_specimen=int(len(d)))
 
-def fold_duplicate_report(d, n_splits=N_OUTER, mode=None):
-    """量化折间重复：每个测试折中，因子组合在训练折里原样出现的工况数"""
-    X = d[FEATS].values.astype(float)
-    g = group_labels(d, mode)
-    y = np.zeros(len(d))
-    key = [tuple(r) for r in np.round(X, 6)]
-    cond = d['cond'].values
-    rows = []
-    for k, (tr, te) in enumerate(GroupKFold(n_splits).split(X, y, groups=g)):
-        trset = {key[i] for i in tr}
-        te_cond = sorted(set(cond[te].tolist()))
-        dup = sorted({int(cond[i]) for i in te if key[i] in trset})
-        rows.append(dict(fold=k, n_test_cond=len(te_cond), n_dup_cond=len(dup),
-                         dup_conds=dup))
-    return pd.DataFrame(rows)
+# def fold_duplicate_report(d, n_splits=N_OUTER, mode=None):
+#     """量化折间重复：每个测试折中，因子组合在训练折里原样出现的工况数"""
+#     X = d[FEATS].values.astype(float)
+#     g = group_labels(d, mode)
+#     y = np.zeros(len(d))
+#     key = [tuple(r) for r in np.round(X, 6)]
+#     cond = d['cond'].values
+#     rows = []
+#     for k, (tr, te) in enumerate(GroupKFold(n_splits).split(X, y, groups=g)):
+#         trset = {key[i] for i in tr}
+#         te_cond = sorted(set(cond[te].tolist()))
+#         dup = sorted({int(cond[i]) for i in te if key[i] in trset})
+#         rows.append(dict(fold=k, n_test_cond=len(te_cond), n_dup_cond=len(dup),
+#                          dup_conds=dup))
+#     return pd.DataFrame(rows)
+
 
 
 #Bagging和GBoost集成
 class MyBagging(BaseEstimator, RegressorMixin):  #用BaseEstimator继承可以覆盖初始化的超参数
-    """Bagging: 自助采样 x 决策树 -> 平均（并行降方差）"""
+    """Bagging: 自助采样  300决策树 平均（并行降方差）"""
 
     def __init__(self, n_estimators=300, max_depth=None, min_samples_leaf=2,
                  max_features=None, random_state=0):
@@ -320,9 +329,10 @@ class MyBagging(BaseEstimator, RegressorMixin):  #用BaseEstimator继承可以�
         X = np.asarray(X, float)
         y = np.asarray(y, float)
         rng = np.random.default_rng(self.random_state)
+
         n = len(y)
         self.trees_ = []
-        for b in range(self.n_estimators):
+        for _ in range(self.n_estimators):
             idx = rng.integers(0, n, n)                      # 有放回自助采样
             t = DecisionTreeRegressor(max_depth=self.max_depth,
                                       min_samples_leaf=self.min_samples_leaf,
@@ -337,8 +347,8 @@ class MyBagging(BaseEstimator, RegressorMixin):  #用BaseEstimator继承可以�
 
 class MyGBoost(BaseEstimator, RegressorMixin):
     """梯度提升(平方损失): 浅树逐轮拟合残差（串行降偏差）
-    只用了平方损失的一阶梯度，
-    没有二阶(Newton)信息、没有显式正则项、没有列子采样。
+    只用了平方损失的一阶梯度
+    没有二阶(Newton)信息、没有显式正则项
     """
 
     def __init__(self, n_estimators=400, learning_rate=0.05, max_depth=3,
@@ -348,26 +358,26 @@ class MyGBoost(BaseEstimator, RegressorMixin):
         self.max_depth = max_depth
         self.min_samples_leaf = min_samples_leaf
         self.subsample = subsample
-        self.random_state = random_state
+        self.random_state = random_state  #随机提升SGB 
 
     def fit(self, X, y):
         X = np.asarray(X, float)
         y = np.asarray(y, float)
-        rng = np.random.default_rng(self.random_state
-                                    )
+        rng = np.random.default_rng(self.random_state)
         n = len(y)
         self.F0_ = y.mean()
-        F = np.full(n, self.F0_)       # F预测值向量
+        F = np.full(n, self.F0_)       #F预测值向量
+
         self.trees_ = []
         m = max(1, int(round(self.subsample * n)))
         for _ in range(self.n_estimators):
             r = y - F                                        # 平方损失的负梯度 = 残差
-            idx = rng.choice(n, m, replace=False) if m < n else np.arange(n)
+            idx = rng.choice(n, m, replace=False) if m < n else np.arange(n) #不放回抽取样本
             t = DecisionTreeRegressor(max_depth=self.max_depth,
                                       min_samples_leaf=self.min_samples_leaf,
                                       random_state=int(rng.integers(1e9)))
             t.fit(X[idx], r[idx])      #学习的是残差
-            F += self.learning_rate * t.predict(X)           # 小步累加
+            F += self.learning_rate * t.predict(X)           #小步累加
             self.trees_.append(t)
         return self
 
@@ -377,9 +387,13 @@ class MyGBoost(BaseEstimator, RegressorMixin):
             [t.predict(X) for t in self.trees_], axis=0)
 
 
+
 #GPR构造 核距离度量/交互项
 def add_dir_inter(X):
-    """追加方向交互特征: (direction-1.5) * 其余4因子 -> 9列"""
+    """追加方向交互特征: (direction-1.5) * 其余4特征
+    最后特征工程是 5 + 4个交互项
+    """
+
     X = np.asarray(X, float)
     d = (X[:, 4:5] - 1.5)
     return np.hstack([X, d * X[:, :4]])  #按列拼接
@@ -395,7 +409,9 @@ def make_gpr(ard=True, nu=2.5, noise=1e-2, dir_inter=False):
         steps.insert(0, FunctionTransformer(add_dir_inter))
     return make_pipeline(*steps)
 
-# 基学习器
+
+
+#基学习器
 def base_learners():
     """返回 {名称: 未拟合模型}"""
     return {
@@ -420,7 +436,6 @@ def base_learners():
                                   AdaBoostRegressor(random_state=0)),
         'Lasso': make_pipeline(StandardScaler(), Lasso()),
     }
-
 
 #超参网格与调优
 GRIDS = {
@@ -455,24 +470,28 @@ GRIDS = {
     'Lasso': {'lasso__alpha': [0.001, 0.01, 0.1, 1.0]},
 }
 
-def grid_size(grid):
-    if not grid:
-        return 1
-    return int(np.prod([len(v) for v in grid.values()])) #prod计算乘积  计算所有参数组合
+
+# def grid_size(grid):
+#     if not grid:
+#         return 1
+#     return int(np.prod([len(v) for v in grid.values()])) #prod计算乘积  计算所有参数组合
 
 
-#===补丁===
+#======
 def _safe_folds(g, requested):
-    """折数不能超过组数（嵌套调优时训练子集可能较小）"""
+    """折数不能超过样本的分组数 样本量少可能出现折数大于分组数"""
     n_g = len(np.unique(g))
     return int(max(2, min(requested, n_g)))
 
 
-#在训练集调优
-def tune_on(X, y, g, tag='', verbose=False):
-    """在给定训练子集上网格调优全部基学习器。
-    返回 (tuned, cv_scores, best_params, meta)
+#外层训练集调优
+def tune_on(X, y, g, tag='', verbose=True):
     """
+    在给定训练子集上网格调优全部基学习器
+    返回 (tuned, cv_scores, best_params, meta)
+    tuned: {name: 已调优的基学习器实例}
+    """
+
     t0 = time.time()
     tuned, cv_scores, best_params = {}, {}, {}
     n_splits = _safe_folds(g, N_TUNE_FOLDS)
@@ -486,51 +505,57 @@ def tune_on(X, y, g, tag='', verbose=False):
         best_params[name] = dict(gs.best_params_)
 
         if verbose:
-            print(f'    [{tag}] {name:12s} 嵌套交叉外层训练集里CV 本折R2={gs.best_score_:6.3f} | {gs.best_params_}')
+            print(f'  [{tag}] {name:12s} 嵌套交叉外层训练集本折 R2={gs.best_score_:6.3f} | {gs.best_params_}')
     
-    meta = dict(目标=tag, 调优耗时_s=round(time.time() - t0, 1),
-                学习器数=len(tuned), n_splits=n_splits)
+    meta = dict(目标=tag, 调优耗时_s=round(time.time() - t0, 1),学习器数=len(tuned), n_splits=n_splits)
     return tuned, cv_scores, best_params, meta
 
-#全量数据调优
+#全量数据调优，用于最终模型提交
 def tune_all(tag, verbose=True):
-    """对单个目标用全量训练数据网格调优全部基学习器
     """
+    对单个目标用全量训练数据网格调优全部基学习器
+    用于最终模型提交
+    """
+
     d = load_long(TAG2SHEET[tag])
     X, y = d[FEATS].values.astype(float), d['y'].values
     g = group_labels(d)
+
     tuned, cv_scores, best_params = {}, {}, {}
     t0 = time.time()
     n_splits = _safe_folds(g, N_TUNE_FOLDS)
     for name, est in base_learners().items():
-        gs = GridSearchCV(est, GRIDS[name], scoring='r2',
-                          cv=GroupKFold(n_splits), n_jobs=N_JOBS)
+        gs = GridSearchCV(est, GRIDS[name], scoring='r2',cv=GroupKFold(n_splits), n_jobs=N_JOBS)
         gs.fit(X, y, groups=g)
         tuned[name] = clone(gs.best_estimator_)
         cv_scores[name] = gs.best_score_
         best_params[name] = dict(gs.best_params_)
+
         if verbose:
-            print(f'  [{tag}] {name:12s} 全量数据调优CV R2={gs.best_score_:6.3f} | {gs.best_params_}')
+            print(f'  [{tag}] {name:12s} 全量数据调优 R2={gs.best_score_:6.3f} | {gs.best_params_}')
     elapsed = time.time() - t0
+    
     if verbose:
         print(f'  [{tag}] 调优耗时 {elapsed:.0f}s | 折数={n_splits}')
 
-    meta = dict(目标=tag, 调优耗时_s=round(elapsed, 1), 学习器数=len(tuned),
-                cv_group=GROUP_MODE, n_splits=n_splits)
+    meta = dict(目标=tag, 调优耗时_s=round(elapsed, 1), 学习器数=len(tuned),cv_group=GROUP_MODE, n_splits=n_splits)
     return tuned, cv_scores, best_params, meta
 
 
-# OOF非负加权融合    最终集成对象
+#OOF非负加权融合    最终集成对象
 def oof_matrix(learners, X, y, g, n_splits=N_INNER, n_jobs=None):
-    """各基学习器的袋外预测矩阵 (n, L)"""
+    """各基学习器的袋外预测矩阵(n, L)"""
 
     n_splits = _safe_folds(g, n_splits)
     n_jobs = N_JOBS if n_jobs is None else int(n_jobs)
 
     def _predict_all(nj):
+        """
+        预测矩阵(n, L)  每列是一个基学习器的袋外预测
+        """
         return np.column_stack([
             cross_val_predict(clone(est), X, y, cv=GroupKFold(n_splits),
-                              groups=g, n_jobs=nj)
+                              groups=g, n_jobs=nj) #(1,L)
             for est in learners.values()])
     
     #===优化===
@@ -539,17 +564,22 @@ def oof_matrix(learners, X, y, g, n_splits=N_INNER, n_jobs=None):
     except Exception as e:
         if n_jobs == 1:
             raise
-        print(f'[错误] 并行交叉验证失败'
-              f'改为串行重算')
+        print(f'\033[31m[错误] 并行交叉验证失败'
+              f'改为串行重算\033[0m')
         return _predict_all(1)
 
 def _nnls_stable(A, b):
-    """ NNLS """
+    """ NNLS 
+    A: (n, L) 预测矩阵
+    b: (n,) 目标值
+    """
+
     A = np.asarray(A, float)
     b = np.asarray(b, float)
-    n_feat = A.shape[1]
+    n_feat = A.shape[1] #特征数
 
     maxiter = max(300, 50 * n_feat)   #迭代收敛次数
+
     try:
         w, _ = nnls(A, b, maxiter=maxiter)
     except RuntimeError:
@@ -564,7 +594,7 @@ def _nnls_stable(A, b):
 
 def fit_weights(P, y, cond):
     """工况均值口径下的NNLS融合权重 归一化 """
-    dfP = pd.DataFrame(P).assign(cond=cond, y=y).groupby('cond').mean()
+    dfP = pd.DataFrame(P).assign(cond=cond, y=y).groupby('cond').mean() #按工况聚合取均值
     w = _nnls_stable(dfP.drop(columns='y').values, dfP['y'].values)
 
     #如果所有模型权重都是0
@@ -574,8 +604,12 @@ def fit_weights(P, y, cond):
         w = w / w.sum()                    #归一化为占比
     return w
 
+
 class WeightedEnsemble(BaseEstimator, RegressorMixin):
-    """交付集成模型: 全数据拟合各成员, 按w加权"""
+    """
+    最终集成模型
+    全数据拟合各成员, 按w加权
+    """
 
     def __init__(self, learners, weights):
         self.learners = learners
@@ -587,22 +621,29 @@ class WeightedEnsemble(BaseEstimator, RegressorMixin):
         return self
 
     def member_predictions(self, X): 
-        """(n, L) 成员预测矩阵 全数据拟合"""
+        """
+        X:新样本的特征列
+        (n, L) 成员预测矩阵 全数据拟合
+        """
         X = np.asarray(X, float)
         return np.column_stack([m.predict(X) for m in self.fitted_.values()])
 
     def predict(self, X):
+        """
+        X:新样本的特征列
+        """
         X = np.asarray(X, float)
         return self.member_predictions(X) @ self.weights
 
 
-#嵌套交叉验证 评估
+
+#嵌套交叉验证框架
 def nested_oof_v2(tag, tuned=None, n_outer=N_OUTER, n_inner=N_INNER,
                   nested_tune=True, per_fold=True, verbose=True, group_mode=None):
     """
     每个外层折内部：
-        1. 若 nested_tune=True 在嵌套交叉该折训练子集上重新进行网格调优
-        2. 内层 GroupKFold(n_inner) 学 NNLS 权重
+        1.nested_tune=True 在嵌套交叉该折训练子集上重新进行网格调优
+        2.内层 GroupKFold(n_inner) 学 NNLS 权重
         3. 该折训练子集上拟合成员  预测外层测试折，得成员矩阵 Pm 与集成预测
 
     返回dict:
@@ -615,6 +656,7 @@ def nested_oof_v2(tag, tuned=None, n_outer=N_OUTER, n_inner=N_INNER,
     X = d[FEATS].values.astype(float)
     y = d['y'].values
     cond = d['cond'].values
+
     grp = group_labels(d, group_mode)
     mode_used = GROUP_MODE if group_mode is None else group_mode
     n_outer = _safe_folds(grp, n_outer)
@@ -622,11 +664,14 @@ def nested_oof_v2(tag, tuned=None, n_outer=N_OUTER, n_inner=N_INNER,
     n = len(y)
     oof = np.empty(n)
     Pm = np.empty((n, len(names)))
+
     fold_w, fold_best, fold_maxw, folds, tune_meta = [], [], [], [], []
     t0 = time.time()
     for k, (tr, te) in enumerate(GroupKFold(n_outer).split(X, y, groups=grp)):
         tuned_k, cv_k = tuned, None
+
         if nested_tune:
+            #先调优 再学权重
             tuned_k, cv_k, _, meta_k = tune_on(X[tr], y[tr], grp[tr], tag=tag)
             tune_meta.append(meta_k)
         w = fit_weights(oof_matrix(tuned_k, X[tr], y[tr], grp[tr], n_inner),
@@ -635,6 +680,7 @@ def nested_oof_v2(tag, tuned=None, n_outer=N_OUTER, n_inner=N_INNER,
                                for m in tuned_k.values()])
         Pm[te] = Pte
         oof[te] = Pte @ w
+
         fold_w.append(w)
         if cv_k is not None:
             fold_best.append(max(cv_k, key=cv_k.get))
@@ -659,14 +705,17 @@ def nested_oof_v2(tag, tuned=None, n_outer=N_OUTER, n_inner=N_INNER,
                 n_outer=n_outer, tune_meta=tune_meta, group_mode=mode_used)
 
 def cond_mean_pairs(y, p, cond):
-    """试样级到工况均值口径聚合 返回 (y_mean, p_mean)"""
+    """
+    试样级到工况均值口径聚合 返回 (y_mean, p_mean)
+    p:预测值
+    """
     df = pd.DataFrame(dict(y=np.asarray(y, float), p=np.asarray(p, float),
                            cond=np.asarray(cond)))
     g = df.groupby('cond').mean()
     return g['y'].values, g['p'].values
 
 def evaluate_oof(tag, oof, y, cond):
-    """工况均值口径的评估指标"""
+    """工况均值口径的评估指标 R2 RMSE MAPE"""
     yt, pt = cond_mean_pairs(y, oof, cond)
     out = dict(目标=tag,
                R2=round(float(r2_score(yt, pt)), 3),
@@ -676,56 +725,63 @@ def evaluate_oof(tag, oof, y, cond):
     return out
 
 
-#区间预测里面 第二部分的实验噪声 SS 方差计算
+#实验噪声误差来源
 def repeatability(tag):
     """
     返回 dict:
-        sd_within     : 工况内试样间 pooled SD
-        sd_run        : 同一因子组合不同"次运行"的工况均值 pooled SD
+        sd_within     : 工况内试样间 pooled SD   SD-标准差
+        sd_run        : 同一因子组合不同次运行的工况均值 pooled SD
     
         sd_pure_run   : 扣除试样抽样后的纯批间 SD
-        var_sampling  : sd_within^2 / N_REPL_PER_COND
+        var_sampling  : sd_within^2 / N_REPL_PER_COND  抽样方差
         n_rep_combos / df_run : 重复组合数与自由度
+
+        工况均值方差 = 纯运行间方差 + 试样抽样方差
     """
+
     d = load_long(TAG2SHEET[tag])
     agg = {'y': ('y', 'mean'), 'n': ('y', 'size')}
     agg.update({f: (f, 'first') for f in FEATS})
     cm = d.groupby('cond').agg(**agg).reset_index()
-    sdw2 = float(d.groupby('cond')['y'].var(ddof=1).mean())
+    #工况内的方差 
+    sdw2 = float(d.groupby('cond')['y'].var(ddof=1).mean()) #多个工况的方差均值
     sd_within = float(np.sqrt(sdw2))
 
     cm['key'] = [tuple(np.round(r, 6)) for r in cm[FEATS].values]
     vc = cm['key'].value_counts()
     rep_keys = list(vc[vc > 1].index)
-
-    ss, df = 0.0, 0
-
+    ss, df = 0.0, 0     #离差平方和  自由度
     for k in rep_keys:
         v = cm.loc[cm['key'] == k, 'y'].values.astype(float)
         ss += float(((v - v.mean()) ** 2).sum())
         df += len(v) - 1
     sd_run = float(np.sqrt(ss / df)) if df > 0 else float('nan')
+
     var_sampling = sdw2 / float(N_REPL_PER_COND)
     sd_pure = float(np.sqrt(max(sd_run ** 2 - var_sampling, 0.0))) if df > 0 else float('nan')
+    
     return dict(sd_within=sd_within, sd_run=sd_run, sd_pure_run=sd_pure,
                 var_sampling=var_sampling,
                 sd_mean_spec=float(sd_within / np.sqrt(N_REPL_PER_COND)),
                 n_rep_combos=len(rep_keys), df_run=df,
                 n_cond=int(len(cm)), n_specimen=int(len(d)))
 
+# def noise_floor(tag, mode='run'):
+#     """
+#     工况均值口径的实验噪声下限σ
+#     用中心点重复运行估计的批间标准差
+#     """
+    
+#     r = repeatability(tag)
+#     return r['sd_run'] if mode == 'run' else r['sd_mean_spec']
 
-#===补丁===
-#辅助函数
-def noise_floor(tag, mode='run'):
-    """工况均值口径的实验噪声下限 σ。
-    mode='run' —— 用中心点重复运行估计的批间标准差。
-    """
-    r = repeatability(tag)
-    return r['sd_run'] if mode == 'run' else r['sd_mean_spec']
 
+#方差计算
 def noise_scale(tag, mode='run'):
-    """方差合成用的实验噪声标准差
     """
+    方差合成用的实验噪声标准差
+    """
+
     r = repeatability(tag)
     order = (('sd_run', 'sd_pure_run', 'sd_mean_spec') if mode == 'run'
              else ('sd_mean_spec', 'sd_pure_run', 'sd_run'))
@@ -742,17 +798,21 @@ def noise_scale(tag, mode='run'):
                 n_rep_combos=r['n_rep_combos'], df_run=r['df_run'])
 
 
+
 #最终全量数据构建集成模型与外部验证
 def build_final_ensemble(tag, tuned_learners, cv_scores=None, verbose=True):
-    """用全部训练数据构建最终部署集成：
+    """
+    用全部训练数据构建最终部署集成：
        1. 各基学习器折外预测  工况均值口径 NNLS 权重
        2. 全数据重拟合   WeightedEnsemble
     """
     d = load_long(TAG2SHEET[tag])
     X, y = d[FEATS].values.astype(float), d['y'].values
+
     g = group_labels(d)
     P = oof_matrix(tuned_learners, X, y, g, N_INNER)
     w = fit_weights(P, y, d['cond'].values)
+
     best_single_name = max(cv_scores, key=cv_scores.get) if cv_scores else None
     maxw_single_name = list(tuned_learners.keys())[int(np.argmax(w))]
 
@@ -768,7 +828,7 @@ def build_final_ensemble(tag, tuned_learners, cv_scores=None, verbose=True):
     
     ens = WeightedEnsemble(tuned_learners, w)
     ens.fit(X, y)
-    return ens, w, best_single_name, maxw_single_name
+    return ens, w,   best_single_name, maxw_single_name
 
 def best_and_maxw_single(tag, cv_scores, weights, names=None):
     """由超参数调优CV得分与融合权重推出  CV最优单一模型 / 权重最大单一模型"""
@@ -781,39 +841,45 @@ def best_and_maxw_single(tag, cv_scores, weights, names=None):
     return best, maxw
 
 
-#===补丁===
-#辅助函数 显著性工具
+#指标
 def _metrics(y_t, y_p):
+    """
+    y_t: 真实值
+    y_p: 预测值
+    """
     y_t = np.asarray(y_t, float)
     y_p = np.asarray(y_p, float)
-    nz = y_t != 0              
+    nz = y_t != 0              #布尔掩码数组
+
     mape = float(np.mean(np.abs((y_t[nz] - y_p[nz]) / y_t[nz])) * 100) if nz.any() else np.nan
     return dict(R2=float(r2_score(y_t, y_p)),
                 RMSE=float(mean_squared_error(y_t, y_p) ** 0.5),
                 MAPE=mape)
 
-def paired_sign_test(y_true, p_a, p_b):
-    """精确配对符号检验
-    检验 H0: A 与 B 的绝对误差同分布；单侧备择 H1: A 的绝对误差更小。
-    返回 dict(n_pairs, wins_a, p_one_sided, median_absdiff)
-    """
-    ea = np.abs(np.asarray(y_true, float) - np.asarray(p_a, float))
-    eb = np.abs(np.asarray(y_true, float) - np.asarray(p_b, float))
-    d = ea - eb
-    nz = d[d != 0]
-    n = int(nz.size)
-    wins = int((nz < 0).sum())            # A 更优的次数
-    if n == 0:
-        p = np.nan
-    else:
-        p = float(stats.binomtest(wins, n, 0.5, alternative='greater').pvalue)
-    return dict(n_pairs=n, wins_a=wins, p_one_sided=p,
-                median_absdiff=float(np.median(d)) if len(d) else np.nan)
+# def paired_sign_test(y_true, p_a, p_b):
+#     """精确配对符号检验
+#     检验 H0: A 与 B 的绝对误差同分布；单侧备择 H1: A 的绝对误差更小。
+#     返回 dict(n_pairs, wins_a, p_one_sided, median_absdiff)
+#     """
+#     ea = np.abs(np.asarray(y_true, float) - np.asarray(p_a, float))
+#     eb = np.abs(np.asarray(y_true, float) - np.asarray(p_b, float))
+#     d = ea - eb
+#     nz = d[d != 0]
+#     n = int(nz.size)
+#     wins = int((nz < 0).sum())            # A 更优的次数
+#     if n == 0:
+#         p = np.nan
+#     else:
+#         p = float(stats.binomtest(wins, n, 0.5, alternative='greater').pvalue)
+#     return dict(n_pairs=n, wins_a=wins, p_one_sided=p,
+#                 median_absdiff=float(np.median(d)) if len(d) else np.nan)
+
 
 def predict_external_with_comparison(tag, ensemble, tuned_learners,
                                      best_single_name, maxw_single_name,
                                      ext_df, verbose=True):
-    """预测外部验证集并做三模型对比（含精确配对符号检验）
+    """
+    预测外部验证集并做三模型对比
     返回 (res_df, summary_row, comparison)
     """
     X_ext = ext_df[FEATS].values.astype(float)
@@ -822,6 +888,7 @@ def predict_external_with_comparison(tag, ensemble, tuned_learners,
     y_pred_ens = np.asarray(ensemble.predict(X_ext), float)
 
     d = load_long(TAG2SHEET[tag])
+
     Xtr, ytr = d[FEATS].values.astype(float), d['y'].values
     y_pred_best = np.asarray(clone(tuned_learners[best_single_name]).fit(Xtr, ytr)
                              .predict(X_ext), float) if best_single_name else None
@@ -838,10 +905,10 @@ def predict_external_with_comparison(tag, ensemble, tuned_learners,
     comparison = {'Ensemble': _metrics(y_true, y_pred_ens)}
     if y_pred_best is not None:
         comparison['BestSingle'] = _metrics(y_true, y_pred_best)
-        comparison['Ens_vs_Best_signtest'] = paired_sign_test(y_true, y_pred_ens, y_pred_best)
+        # comparison['Ens_vs_Best_signtest'] = paired_sign_test(y_true, y_pred_ens, y_pred_best)
     if y_pred_maxw is not None:
         comparison['MaxWeightSingle'] = _metrics(y_true, y_pred_maxw)
-        comparison['Ens_vs_MaxW_signtest'] = paired_sign_test(y_true, y_pred_ens, y_pred_maxw)
+        # comparison['Ens_vs_MaxW_signtest'] = paired_sign_test(y_true, y_pred_ens, y_pred_maxw)
 
     if verbose:
         print(f"\n{'=' * 72}")
@@ -856,13 +923,12 @@ def predict_external_with_comparison(tag, ensemble, tuned_learners,
             m = comparison[k]
             print(f"  {k:<18} R2={m['R2']:>7.3f} "
                   f"RMSE={m['RMSE']:>9.2f} MAPE={m['MAPE']:>7.2f}%")
-        for key, lab in [('Ens_vs_Best_signtest', '集成 vs 单一(CV最优)'),
-                         ('Ens_vs_MaxW_signtest', '集成 vs 单一(权重最大)')]:
-            if key in comparison:
-                s = comparison[key]
-                print(f"  [{lab}] 集成更优 {s['wins_a']}/{s['n_pairs']} 个工况 | "
-                      f"精确符号检验单侧 p={s['p_one_sided']:.3f}")
-        print('  注意: n=8 时 R² 的抽样不确定性很大，结论需结合外部数据解读。')
+        # for key, lab in [('Ens_vs_Best_signtest', '集成 vs 单一(CV最优)'),
+        #                  ('Ens_vs_MaxW_signtest', '集成 vs 单一(权重最大)')]:
+        #     if key in comparison:
+        #         s = comparison[key]
+        #         print(f"  [{lab}] 集成更优 {s['wins_a']}/{s['n_pairs']} 个工况 | "
+        #               f"精确符号检验单侧 p={s['p_one_sided']:.3f}")
 
     summary_row = dict(
         tag=tag, n_ext=len(y_true),
@@ -876,16 +942,19 @@ def predict_external_with_comparison(tag, ensemble, tuned_learners,
             summary_row[f'{k}_R2'] = round(comparison[k]['R2'], 3)
             summary_row[f'{k}_RMSE'] = round(comparison[k]['RMSE'], 2)
             summary_row[f'{k}_MAPE'] = round(comparison[k]['MAPE'], 2)
-    if 'Ens_vs_Best_signtest' in comparison:
-        summary_row['Ens_vs_Best_p'] = round(float(comparison['Ens_vs_Best_signtest']['p_one_sided']), 4)
-        summary_row['Ens_vs_Best_wins'] = int(comparison['Ens_vs_Best_signtest']['wins_a'])
-    if 'Ens_vs_MaxW_signtest' in comparison:
-        summary_row['Ens_vs_MaxW_p'] = round(float(comparison['Ens_vs_MaxW_signtest']['p_one_sided']), 4)
-        summary_row['Ens_vs_MaxW_wins'] = int(comparison['Ens_vs_MaxW_signtest']['wins_a'])
+    # if 'Ens_vs_Best_signtest' in comparison:
+    #     summary_row['Ens_vs_Best_p'] = round(float(comparison['Ens_vs_Best_signtest']['p_one_sided']), 4)
+    #     summary_row['Ens_vs_Best_wins'] = int(comparison['Ens_vs_Best_signtest']['wins_a'])
+    # if 'Ens_vs_MaxW_signtest' in comparison:
+    #     summary_row['Ens_vs_MaxW_p'] = round(float(comparison['Ens_vs_MaxW_signtest']['p_one_sided']), 4)
+    #     summary_row['Ens_vs_MaxW_wins'] = int(comparison['Ens_vs_MaxW_signtest']['wins_a'])
     return res, summary_row, comparison
 
-#辅助函数 超参数组合表 / 训练参数表的构建
+
+
+#超参数组合表
 def _fmt_val(v):
+    """转字符串"""
     if isinstance(v, (list, tuple, np.ndarray)):
         return str(list(v))
     if v is None:
@@ -893,11 +962,13 @@ def _fmt_val(v):
     return str(v)
 
 def format_params(params):
+    """超参数的字典格式化为字符串"""
     if not params:
-        return '(默认参数)'
+        return ''
     return '; '.join(f'{k}={_fmt_val(v)}' for k, v in params.items())
 
 def build_hyperparam_tables(tuned, cv_scores, best_params, meta):
+    """超参数表格"""
     names = list(tuned.keys())
     wide = pd.DataFrame({
         '学习器': names,
@@ -905,6 +976,8 @@ def build_hyperparam_tables(tuned, cv_scores, best_params, meta):
         'CV_R2': [round(float(cv_scores[n]), 4) for n in names],
         '调优耗时_s': meta.get('调优耗时_s', np.nan),
     })
+
+    #细分表格
     rows = []
     for n in names:
         for k, v in best_params[n].items():
@@ -913,7 +986,7 @@ def build_hyperparam_tables(tuned, cv_scores, best_params, meta):
                              CV_R2=round(float(cv_scores[n]), 4)))
     return wide, pd.DataFrame(rows)
 
-#辅助函数  模型存档
+#模型存档 加载
 ARTIFACT_SEARCH_PATHS = [
     ARTIFACT_PATH,                                 
     os.path.join(DATA_DIR, ARTIFACT_FILE),       
@@ -928,17 +1001,17 @@ def save_artifacts(ART, path=ARTIFACT_PATH):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     ART = dict(ART)
     ART['_artifact_version'] = ARTIFACT_VERSION
-    ART['_group_mode'] = GROUP_MODE
+    # ART['_group_mode'] = GROUP_MODE
     ART['_created_at'] = time.strftime('%Y-%m-%d %H:%M:%S')
     with open(path, 'wb') as f:
         joblib.dump(ART, f, compress=3)
-    print(f'模型存档已保存: {path} (version={ARTIFACT_VERSION}, group_mode={GROUP_MODE})')
+    print(f'模型存档已保存: {path} (version={ARTIFACT_VERSION})')
 
 def load_artifacts(path=ARTIFACT_PATH):
     import joblib
     with open(path, 'rb') as f:
         return joblib.load(f)
-
+ 
 def _find_artifact(path):
     if path and os.path.exists(path):
         return path
@@ -948,7 +1021,6 @@ def _find_artifact(path):
     return None
 
 
-#加载模型存档
 def load_or_build_models(path=ARTIFACT_PATH, verbose=True):
     """加载训练好保存的模型存档"""
     found = _find_artifact(path)
@@ -956,24 +1028,24 @@ def load_or_build_models(path=ARTIFACT_PATH, verbose=True):
         try:
             ART = load_artifacts(found)
             ver = ART.get('_artifact_version', 1)
-            gm = ART.get('_group_mode', 'cond')
+            # gm = ART.get('_group_mode', 'cond')
             if ver != ARTIFACT_VERSION:
-                print(f'[警告] 存档版本 {ver} != 当前 {ARTIFACT_VERSION}，忽略该存档并重建')
-            elif gm != GROUP_MODE:
-                print(f'[警告] 存档分组口径 {gm} != 当前 {GROUP_MODE}，忽略该存档并重建。')
+                print(f'\033[31m[警告] 存档版本 {ver} != 当前 {ARTIFACT_VERSION}，忽略该存档并重建\033[0m')
+            # elif gm != GROUP_MODE:
+            #     print(f'[警告] 存档分组口径 {gm} != 当前 {GROUP_MODE}，忽略该存档并重建。')
             else:
                 if verbose:
-                    print(f'[加载] 已从存档载入集成模型: {found} (version={ver})')
+                    print(f'\033[32m[加载] 已从存档载入集成模型: {found} (version={ver})\033[0m')
                 return ART
         except Exception as e:
-            print(f'[警告] 存档读取失败({e!r})')
+            print(f'\033[31m[警告] 存档读取失败({e!r})\033[0m')
     else:
         if verbose:
-            print(f'[提示] 未找到模型存档')
-
+            print(f'\033[33m[提示] 未找到模型存档\033[0m')
 
     if verbose:
-        print('[重建] 重训全部目标')
+        print(f'\033[33m[重建] 重训全部目标\033[0m')
+
     TUNED, CV_SCORES, BEST_PARAMS, TUNE_META = {}, {}, {}, {}
     for tag in SHEETS.values():
         TUNED[tag], CV_SCORES[tag], BEST_PARAMS[tag], TUNE_META[tag] = \
@@ -998,10 +1070,12 @@ def load_or_build_models(path=ARTIFACT_PATH, verbose=True):
                 _artifact_version=ARTIFACT_VERSION, _group_mode=GROUP_MODE)
 
 
-#区间预测与不确定性量化
+#PI-CDN区间预测数学公式
 def conformal_quantile(scores, alpha):
-    """有限样本校正的共形分位数：第 ⌈(n+1)(1-α)⌉ 个次序统计量。
     """
+    有限样本校正的共形分位数：第 ⌈(n+1)(1-α)⌉ 个次序统计量
+    """
+    
     s = np.sort(np.asarray(scores, float).ravel())
     n = s.size
     if n == 0:
@@ -1012,16 +1086,21 @@ def conformal_quantile(scores, alpha):
     return float(s[k - 1])
 
 def variance_quadrature_scale(u, sigma_noise):
-    """方差合成: σ_total(x) = sqrt(σ_model(x)² + σ_noise²)。
+    """
+    方差合成: σ_total(x) = sqrt(σ_model(x)² + σ_noise²)。
     两类不确定性来源 模型认知 / 实验固有噪声
     """
+
     u = np.asarray(u, float)
     return np.sqrt(u ** 2 + float(sigma_noise) ** 2)
 
 def calibrate_quadrature_conformal(r_cal, u_cal, sigma_noise, alpha):
-    """分数 s_i = |r_i| / sqrt(u_i² + σ_noise²)，q̂ 取 ⌈(n+1)(1-α)⌉ 次序统计量。
+    """
+    r_cal: 校准集残差  u_cal: 学习器分歧标准差  sigma_noise: 实验噪声标准差  alpha: 显著性水平
+    无量纲残差 s_i = |r_i| / sqrt(u_i² + σ_noise²)，q̂ 取 ⌈(n+1)(1-α)⌉ 次序统计量
     返回 dict(qhat, sigma_noise, alpha, n_cal)
     """
+    
     r = np.asarray(r_cal, float).ravel()
     u = np.asarray(u_cal, float).ravel()
     if r.size != u.size:
@@ -1038,13 +1117,10 @@ def quadrature_conformal_interval(mu, u, cal):
     return mu - half, mu + half, mu
 
 
-#===补丁===
 def variance_decomposition(r, u, sigma_noise):
-    """方差分解自洽性诊断：Var(r) ≈ κ·E[u²] + σ_noise²  →  κ = (Var(r) − σ_noise²)/E[u²]
-
-    κ ≈ 1 → 分歧与模型误差方差一致，方差合成自洽
-    κ > 1 → 分歧低估模型误差方差（区间可能偏窄，PICP 略低于名义）
-    κ < 1 → 分歧高估（区间偏保守）
+    """
+    方差分解自洽性诊断：Var(r) ≈ κ·E[u²] + σ_noise²  →  κ = (Var(r) − σ_noise²)/E[u²]
+    验证假设：总方差 = 模型分歧方差 + 实验噪声方差
     """
     r = np.asarray(r, float).ravel()
     u = np.asarray(u, float).ravel()
@@ -1055,14 +1131,18 @@ def variance_decomposition(r, u, sigma_noise):
     return dict(var_r=var_r, mean_u2=mean_u2, var_noise=var_n, kappa=kappa,
                 noise_share=(var_n / var_r) if var_r > 0 else float('nan'))
 
+
+#PI-FW区间
 def residual_conformal_interval(mu, r_cal, alpha):
-    """残差共形（常数宽度，仅用残差、不用分歧）"""
+    """残差共形"""
     q = conformal_quantile(np.abs(r_cal), alpha)
     mu = np.asarray(mu, float)
     return mu - q, mu + q, mu
 
+#PI-BD区间
 def member_quantile_interval(Pm, alpha):
-    """成员分位数区间
+    """
+    成员分位数区间
     """
     P = np.asarray(Pm, float)
     L = P.shape[1]
@@ -1073,10 +1153,13 @@ def member_quantile_interval(Pm, alpha):
     lo = S[:, max(k_lo, 1) - 1]
     return lo, hi
 
+
 def cross_conformal_coverage_quadrature(r, u, sigma_noise, alpha, groups=None, n_splits=5):
-    """方差合成版的交叉共形覆盖率
+    """
+    PI-CDN 交叉共形覆盖率
     返回 dict(PICP, PICP_folds, MPIW, qhats, n_cal, n_splits)
     """
+    
     r = np.asarray(r, float).ravel()
     u = np.asarray(u, float).ravel()
     if r.size != u.size:
@@ -1104,8 +1187,10 @@ def cross_conformal_coverage_quadrature(r, u, sigma_noise, alpha, groups=None, n
                 n_splits=n_splits)
 
 def cross_conformal_coverage_constant(r, alpha, groups=None, n_splits=5):
-    """常数宽度（仅残差）共形的交叉覆盖率
     """
+    PI-FW 共形的交叉覆盖率
+    """
+    
     r = np.asarray(r, float).ravel()
     n = r.size
     n_splits = int(max(2, min(n_splits, n)))
@@ -1130,47 +1215,47 @@ def cross_conformal_coverage_constant(r, alpha, groups=None, n_splits=5):
 
 # 评价指标 
 def picp(y_true, lo, hi):
-    """PICP: 真值落在区间内的比例（越接近名义水平 1-α 越好）"""
+    """PICP"""
     y_true = np.asarray(y_true, float)
     lo = np.asarray(lo, float)
     hi = np.asarray(hi, float)
     return float(np.mean((y_true >= lo) & (y_true <= hi)))
 
 def mpiw(lo, hi):
-    """MPIW: 平均区间宽度（原始量纲）"""
+    """MPIW"""
     return float(np.mean(np.asarray(hi, float) - np.asarray(lo, float)))
 
 def pinaw(lo, hi, y_true):
-    """PINAW: 归一化平均宽度 = MPIW / (max(y)-min(y))"""
+    """PINAW"""
     R = float(np.ptp(np.asarray(y_true, float)))
     if R == 0:
         return np.nan
     return mpiw(lo, hi) / R
 
-
-#===补丁===
 def interval_metrics(y_true, lo, hi, groups=None):
-    """一次算齐 PICP / MPIW / PINAW。
-    groups 给定且 n 足够时，额外给出"逐折 PICP"的均值与标准差。"""
+    """
+    PICP / MPIW / PINAW
+    """
     lo = np.asarray(lo, float)
     hi = np.asarray(hi, float)
     y_true = np.asarray(y_true, float)
+
     out = dict(PICP=picp(y_true, lo, hi), MPIW=mpiw(lo, hi),
                PINAW=pinaw(lo, hi, y_true), n=int(len(y_true)))
-    if groups is not None:
-        gs = np.asarray(groups)
-        vals = [picp(y_true[gs == k], lo[gs == k], hi[gs == k]) for k in np.unique(gs)]
-        if len(vals) > 1:
-            out['PICP_foldmean'] = float(np.mean(vals))
-            out['PICP_foldstd'] = float(np.std(vals, ddof=1))
+    # if groups is not None:
+    #     gs = np.asarray(groups)
+    #     vals = [picp(y_true[gs == k], lo[gs == k], hi[gs == k]) for k in np.unique(gs)]
+    #     if len(vals) > 1:
+    #         out['PICP_foldmean'] = float(np.mean(vals))
+    #         out['PICP_foldstd'] = float(np.std(vals, ddof=1))
     return out
 
 
 # 区间预测对象
 class IntervalEnsemble(BaseEstimator, RegressorMixin):
-    """在已拟合的 WeightedEnsemble 之上提供共形区间预测
     """
-
+    在已拟合的 WeightedEnsemble 之上提供共形区间预测
+    """
     def __init__(self, ensemble, X_tr, y_tr, cond_tr):
         self.ensemble = ensemble
         self.X_tr = np.asarray(X_tr, float)
@@ -1182,33 +1267,31 @@ class IntervalEnsemble(BaseEstimator, RegressorMixin):
         return self.ensemble.predict(X)
 
     def calibrate_conformal(self, oof_pred, y_true, alpha=ALPHA):
-        """常数宽度共形：q̂ = |r| 的 ⌈(n+1)(1-α)⌉ 次序统计量（有限样本校正）。"""
+        """常数宽度共形：q̂ = |r| 的 ⌈(n+1)(1-α)⌉ 次序统计量（有限样本校正）"""
         s = np.abs(np.asarray(y_true, float) - np.asarray(oof_pred, float))
         self.qhat_ = conformal_quantile(s, alpha)
         self.conformal_alpha_ = alpha
         return self.qhat_
 
     def calibrate_quadrature(self, oof_pred, y_true, u_cal, sigma_noise, alpha=ALPHA):
-        """方差合成共形：σ_total=sqrt(σ_model²+σ_noise²)，单一标定常数 q̂。
-
-        σ_noise 必须由**重复实验外部给定**（noise_scale(tag)），不能从本批残差回估。
-        """
+        """方差合成共形：σ_total=sqrt(σ_model²+σ_noise²)，单一标定常数 q̂"""
         r = np.asarray(y_true, float) - np.asarray(oof_pred, float)
         self.cal_quad_ = calibrate_quadrature_conformal(r, u_cal, sigma_noise, alpha)
         self.conformal_alpha_ = alpha
         return self.cal_quad_
 
+
     def conformal_interval(self, X):
-        """常数宽度区间（需先 calibrate_conformal）"""
+        """常数宽度区间"""
         if self.qhat_ is None:
             raise ValueError('请先调用 calibrate_conformal(oof_pred, y_true, alpha)')
         if not np.isfinite(self.qhat_):
-            raise ValueError('校准集过小，有限样本共形区间为无穷宽（q̂=+inf）')
+            raise ValueError('校准集过小 有限样本共形区间为无穷宽 q̂=+inf ')
         mu = self.predict(X)
         return mu - self.qhat_, mu + self.qhat_, mu
 
     def quadrature_interval(self, X):
-        """方差合成区间（需先 calibrate_quadrature）"""
+        """方差合成区间"""
         if not hasattr(self, 'cal_quad_'):
             raise ValueError('请先调用 calibrate_quadrature(oof_pred, y_true, u_cal, sigma_noise)')
         mu = self.predict(X)
@@ -1216,56 +1299,60 @@ class IntervalEnsemble(BaseEstimator, RegressorMixin):
         return quadrature_conformal_interval(mu, u, self.cal_quad_)
 
 
-def lack_of_fit_test(tag):
-    """经典 DoE 失拟检验"""
-    cm = load_condition_means(tag)
-    X = cm[FEATS].values.astype(float)
-    y = cm['y'].values.astype(float)
-    cm = cm.assign(key=[tuple(np.round(r, 6)) for r in X])
-    vc = cm['key'].value_counts()
-    rep_keys = list(vc[vc > 1].index)
-    if not rep_keys:
-        return dict(目标=tag, 失拟F=np.nan, p值=np.nan, 说明='无重复运行，无法做失拟检验')
-    ss_pe, df_pe = 0.0, 0
-    for k in rep_keys:
-        v = cm.loc[cm['key'] == k, 'y'].values.astype(float)
-        ss_pe += float(((v - v.mean()) ** 2).sum())
-        df_pe += len(v) - 1
-    A = _quad_design(X)
-    coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-    resid = y - A @ coef
-    ss_e = float((resid ** 2).sum())
-    df_e = len(y) - A.shape[1]
-    ss_lof = ss_e - ss_pe
-    df_lof = df_e - df_pe
-    if df_lof <= 0 or ss_pe <= 0:
-        return dict(目标=tag, 失拟F=np.nan, p值=np.nan, 说明='自由度或纯误差不足')
-    F = (ss_lof / df_lof) / (ss_pe / df_pe)
-    p = float(1.0 - stats.f.cdf(F, df_lof, df_pe))
-    return dict(目标=tag, 全二次项数=int(A.shape[1]), SS_E=round(ss_e, 4),
-                df_E=df_e, SS_PE=round(ss_pe, 4), df_PE=df_pe,
-                SS_LOF=round(ss_lof, 4), df_LOF=df_lof,
-                失拟F=round(float(F), 3), p值=round(p, 4),
-                结论='二次模型不足(存在更高阶/交互效应)' if p < 0.05 else '二次模型充分')
+# def lack_of_fit_test(tag):
+#     """经典 DoE 失拟检验"""
+#     cm = load_condition_means(tag)
+#     X = cm[FEATS].values.astype(float)
+#     y = cm['y'].values.astype(float)
+#     cm = cm.assign(key=[tuple(np.round(r, 6)) for r in X])
+#     vc = cm['key'].value_counts()
+#     rep_keys = list(vc[vc > 1].index)
+#     if not rep_keys:
+#         return dict(目标=tag, 失拟F=np.nan, p值=np.nan, 说明='无重复运行，无法做失拟检验')
+#     ss_pe, df_pe = 0.0, 0
+#     for k in rep_keys:
+#         v = cm.loc[cm['key'] == k, 'y'].values.astype(float)
+#         ss_pe += float(((v - v.mean()) ** 2).sum())
+#         df_pe += len(v) - 1
+#     A = _quad_design(X)
+#     coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+#     resid = y - A @ coef
+#     ss_e = float((resid ** 2).sum())
+#     df_e = len(y) - A.shape[1]
+#     ss_lof = ss_e - ss_pe
+#     df_lof = df_e - df_pe
+#     if df_lof <= 0 or ss_pe <= 0:
+#         return dict(目标=tag, 失拟F=np.nan, p值=np.nan, 说明='自由度或纯误差不足')
+#     F = (ss_lof / df_lof) / (ss_pe / df_pe)
+#     p = float(1.0 - stats.f.cdf(F, df_lof, df_pe))
+#     return dict(目标=tag, 全二次项数=int(A.shape[1]), SS_E=round(ss_e, 4),
+#                 df_E=df_e, SS_PE=round(ss_pe, 4), df_PE=df_pe,
+#                 SS_LOF=round(ss_lof, 4), df_LOF=df_lof,
+#                 失拟F=round(float(F), 3), p值=round(p, 4),
+#                 结论='二次模型不足(存在更高阶/交互效应)' if p < 0.05 else '二次模型充分')
 
-def _quad_design(X):
-    """全二次设计矩阵（含截距、线性、平方、交互）"""
-    X = np.asarray(X, float)
-    n, p = X.shape
-    cols = [np.ones(n)]
-    for j in range(p):
-        cols.append(X[:, j])
-    for j in range(p):
-        for k in range(j, p):
-            cols.append(X[:, j] * X[:, k])
-    return np.column_stack(cols)
+# def _quad_design(X):
+#     """全二次设计矩阵（含截距、线性、平方、交互）"""
+#     X = np.asarray(X, float)
+#     n, p = X.shape
+#     cols = [np.ones(n)]
+#     for j in range(p):
+#         cols.append(X[:, j])
+#     for j in range(p):
+#         for k in range(j, p):
+#             cols.append(X[:, j] * X[:, k])
+#     return np.column_stack(cols)
+
+
 
 def _model_display_name(ens, model, best_name, maxw_name, top_k=4):
-    """把 Ensemble/BestSingle/MaxWeightSingle 泛称翻译成具体模型名
+    """
+    Ensemble/BestSingle/MaxWeightSingle 翻译成具体模型名
       BestSingle      -> BEST_SINGLE[tag] CV 最优的基学习器
       MaxWeightSingle -> MAXW_SINGLE[tag] NNLS 权重最大的基学习器
-      Ensemble        -> 'NNLS集成(' + 权重最大的 top_k 个成员及权重 + ')'，权重 0 的成员不列
+      Ensemble        -> 'NNLS集成(' + 权重最大的 top_k 个成员及权重 + ')'，权重0的成员不列
     """
+
     if model == 'BestSingle':
         return str(best_name) if best_name else '—'
     if model == 'MaxWeightSingle':
@@ -1286,8 +1373,7 @@ def _model_display_name(ens, model, best_name, maxw_name, top_k=4):
         parts.append(f'等{len(nz)}项')
     return 'NNLS集成(' + ', '.join(parts) + ')'
 
-
-# 点预测指标长表
+#点预测指标长表
 def point_indicator_table(ART, ext=None, targets=None):
     ENS = ART['ENSEMBLES']
     NEST = ART.get('NESTED') or {}
