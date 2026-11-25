@@ -106,9 +106,6 @@ ARTIFACT_VERSION = 3                                        #模型存档版本
 
 
 EXT_PRED_CMP_PATH    = os.path.join(EXT_DIR, EXT_PRED_CMP_XLSX)
-# TRAIN_RESULT_PATH    = os.path.join(MODEL_DIR, TRAIN_RESULT_XLSX)
-# INTERVAL_RESULT_PATH = os.path.join(PI_VQ_DIR, INTERVAL_RESULT_XLSX)
-
 
 #每个工况的平行试样数
 N_REPL_PER_COND = 3
@@ -141,28 +138,6 @@ def load_long(sheet, validate=False):
     # if validate:
     #     _validate_long(d, sheet)
     return d
-
-# def _validate_long(d, sheet):
-#     """长表结构自检"""
-#     if d['y'].isna().any():
-#         bad = d.loc[d['y'].isna(), 'cond'].unique().tolist()
-#         raise ValueError(f'[{sheet}] 存在缺失响应值的工况: {bad[:10]}')
-#     if d[FEATS].isna().any().any():
-#         raise ValueError(f'[{sheet}] 存在缺失的工艺因子')
-    
-#     n_per = d.groupby('cond').size()  #检查所有工况组合的样本个数是不是都是3个 如果是则nunique()为1
-#     if n_per.nunique() != 1:
-#         bad = n_per[n_per != n_per.iloc[0]]
-#         raise ValueError(f'[{sheet}] 各工况平行试样数不相等: {bad.to_dict()}')
-    
-#     if int(n_per.iloc[0]) != N_REPL_PER_COND:
-#         raise ValueError(f'[{sheet}] 每工况平行试样数 {int(n_per.iloc[0])} ')
-#     rng = dict(T_noz=(200, 400), T_bed=(0, 150), speed=(1, 300),
-#                layer=(0.01, 1.0), direction=(1, 3))
-#     for f, (lo, hi) in rng.items():
-#         v = d[f].astype(float)
-#         if v.min() < lo or v.max() > hi:
-#             raise ValueError(f'[{sheet}] 因子 {f} 取值越界: [{v.min()}, {v.max()}]')
 
 
 
@@ -294,23 +269,6 @@ def describe_groups(d, mode=None):
     g = group_labels(d, mode)
     return dict(mode=mode, n_cond=int(d['cond'].nunique()),
                 n_groups=int(len(np.unique(g))), n_specimen=int(len(d)))
-
-# def fold_duplicate_report(d, n_splits=N_OUTER, mode=None):
-#     """量化折间重复：每个测试折中，因子组合在训练折里原样出现的工况数"""
-#     X = d[FEATS].values.astype(float)
-#     g = group_labels(d, mode)
-#     y = np.zeros(len(d))
-#     key = [tuple(r) for r in np.round(X, 6)]
-#     cond = d['cond'].values
-#     rows = []
-#     for k, (tr, te) in enumerate(GroupKFold(n_splits).split(X, y, groups=g)):
-#         trset = {key[i] for i in tr}
-#         te_cond = sorted(set(cond[te].tolist()))
-#         dup = sorted({int(cond[i]) for i in te if key[i] in trset})
-#         rows.append(dict(fold=k, n_test_cond=len(te_cond), n_dup_cond=len(dup),
-#                          dup_conds=dup))
-#     return pd.DataFrame(rows)
-
 
 
 #Bagging和GBoost集成
@@ -470,11 +428,6 @@ GRIDS = {
     'Lasso': {'lasso__alpha': [0.001, 0.01, 0.1, 1.0]},
 }
 
-
-# def grid_size(grid):
-#     if not grid:
-#         return 1
-#     return int(np.prod([len(v) for v in grid.values()])) #prod计算乘积  计算所有参数组合
 
 
 #======
@@ -766,15 +719,6 @@ def repeatability(tag):
                 n_rep_combos=len(rep_keys), df_run=df,
                 n_cond=int(len(cm)), n_specimen=int(len(d)))
 
-# def noise_floor(tag, mode='run'):
-#     """
-#     工况均值口径的实验噪声下限σ
-#     用中心点重复运行估计的批间标准差
-#     """
-    
-#     r = repeatability(tag)
-#     return r['sd_run'] if mode == 'run' else r['sd_mean_spec']
-
 
 #方差计算
 def noise_scale(tag, mode='run'):
@@ -856,23 +800,6 @@ def _metrics(y_t, y_p):
                 RMSE=float(mean_squared_error(y_t, y_p) ** 0.5),
                 MAPE=mape)
 
-# def paired_sign_test(y_true, p_a, p_b):
-#     """精确配对符号检验
-#     检验 H0: A 与 B 的绝对误差同分布；单侧备择 H1: A 的绝对误差更小。
-#     返回 dict(n_pairs, wins_a, p_one_sided, median_absdiff)
-#     """
-#     ea = np.abs(np.asarray(y_true, float) - np.asarray(p_a, float))
-#     eb = np.abs(np.asarray(y_true, float) - np.asarray(p_b, float))
-#     d = ea - eb
-#     nz = d[d != 0]
-#     n = int(nz.size)
-#     wins = int((nz < 0).sum())            # A 更优的次数
-#     if n == 0:
-#         p = np.nan
-#     else:
-#         p = float(stats.binomtest(wins, n, 0.5, alternative='greater').pvalue)
-#     return dict(n_pairs=n, wins_a=wins, p_one_sided=p,
-#                 median_absdiff=float(np.median(d)) if len(d) else np.nan)
 
 
 def predict_external_with_comparison(tag, ensemble, tuned_learners,
@@ -951,7 +878,6 @@ def predict_external_with_comparison(tag, ensemble, tuned_learners,
     return res, summary_row, comparison
 
 
-
 #超参数组合表
 def _fmt_val(v):
     """转字符串"""
@@ -985,6 +911,7 @@ def build_hyperparam_tables(tuned, cv_scores, best_params, meta):
                              学习器=n, 参数名=k, 参数值=_fmt_val(v),
                              CV_R2=round(float(cv_scores[n]), 4)))
     return wide, pd.DataFrame(rows)
+
 
 #模型存档 加载
 ARTIFACT_SEARCH_PATHS = [
@@ -1068,6 +995,7 @@ def load_or_build_models(path=ARTIFACT_PATH, verbose=True):
                 WEIGHTS_TABLE=WEIGHTS_TABLE, CV_SCORES=CV_SCORES,
                 BEST_PARAMS=BEST_PARAMS, TUNE_META=TUNE_META,
                 _artifact_version=ARTIFACT_VERSION, _group_mode=GROUP_MODE)
+
 
 
 #PI-CDN区间预测数学公式
@@ -1213,6 +1141,7 @@ def cross_conformal_coverage_constant(r, alpha, groups=None, n_splits=5):
                 n_splits=n_splits)
 
 
+
 # 评价指标 
 def picp(y_true, lo, hi):
     """PICP"""
@@ -1297,51 +1226,6 @@ class IntervalEnsemble(BaseEstimator, RegressorMixin):
         mu = self.predict(X)
         u = np.std(self.ensemble.member_predictions(X), axis=1)
         return quadrature_conformal_interval(mu, u, self.cal_quad_)
-
-
-# def lack_of_fit_test(tag):
-#     """经典 DoE 失拟检验"""
-#     cm = load_condition_means(tag)
-#     X = cm[FEATS].values.astype(float)
-#     y = cm['y'].values.astype(float)
-#     cm = cm.assign(key=[tuple(np.round(r, 6)) for r in X])
-#     vc = cm['key'].value_counts()
-#     rep_keys = list(vc[vc > 1].index)
-#     if not rep_keys:
-#         return dict(目标=tag, 失拟F=np.nan, p值=np.nan, 说明='无重复运行，无法做失拟检验')
-#     ss_pe, df_pe = 0.0, 0
-#     for k in rep_keys:
-#         v = cm.loc[cm['key'] == k, 'y'].values.astype(float)
-#         ss_pe += float(((v - v.mean()) ** 2).sum())
-#         df_pe += len(v) - 1
-#     A = _quad_design(X)
-#     coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-#     resid = y - A @ coef
-#     ss_e = float((resid ** 2).sum())
-#     df_e = len(y) - A.shape[1]
-#     ss_lof = ss_e - ss_pe
-#     df_lof = df_e - df_pe
-#     if df_lof <= 0 or ss_pe <= 0:
-#         return dict(目标=tag, 失拟F=np.nan, p值=np.nan, 说明='自由度或纯误差不足')
-#     F = (ss_lof / df_lof) / (ss_pe / df_pe)
-#     p = float(1.0 - stats.f.cdf(F, df_lof, df_pe))
-#     return dict(目标=tag, 全二次项数=int(A.shape[1]), SS_E=round(ss_e, 4),
-#                 df_E=df_e, SS_PE=round(ss_pe, 4), df_PE=df_pe,
-#                 SS_LOF=round(ss_lof, 4), df_LOF=df_lof,
-#                 失拟F=round(float(F), 3), p值=round(p, 4),
-#                 结论='二次模型不足(存在更高阶/交互效应)' if p < 0.05 else '二次模型充分')
-
-# def _quad_design(X):
-#     """全二次设计矩阵（含截距、线性、平方、交互）"""
-#     X = np.asarray(X, float)
-#     n, p = X.shape
-#     cols = [np.ones(n)]
-#     for j in range(p):
-#         cols.append(X[:, j])
-#     for j in range(p):
-#         for k in range(j, p):
-#             cols.append(X[:, j] * X[:, k])
-#     return np.column_stack(cols)
 
 
 
